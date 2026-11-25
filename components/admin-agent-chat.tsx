@@ -1,70 +1,71 @@
 "use client";
 
-/**
- * Welcome! This is the chat panel you will edit for the workshop!
- *
- * During the workshop you'll connect it to a real agent: swap the
- * local `useState` for `useChat` from the AI SDK, point the form
- * at `sendMessage`, and render each message's `parts` inside
- * `<ConversationContent>`.
- *
- * Workshop docs: https://agent-foundations-certification.vercel.app/docs/admin-chat-agent
- */
-import { useState } from "react";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import {
-  PromptInput,
-  PromptInputBody,
-  PromptInputFooter,
-  type PromptInputMessage,
-  PromptInputSubmit,
-  PromptInputTextarea,
-  PromptInputTools,
-} from "@/components/ai-elements/prompt-input";
+import { Bot, SquarePen } from "lucide-react";
+import { AdminToolPart, type AdminMessage } from "@/components/admin-tool-parts";
+import { ChatComposer, ChatThread } from "@/components/chat-thread";
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { Button } from "@/components/ui/button";
+import { type SavedChat, useSavedChat, useWorkflowChat } from "@/hooks/use-workflow-chat";
+
+const STORAGE_KEY = "ship-it-shop:admin-chat";
 
 const SUGGESTIONS = [
-  "Show me low-stock items",
-  "What were yesterday's top sellers?",
+  "Which products have the highest return rate this month?",
+  "Which low-stock items are top sellers?",
   "Summarize this week's revenue",
+  "How many urgent support tickets are still open?",
 ];
 
 export function AdminAgentChat() {
-  const [input, setInput] = useState("");
-
-  const handleSubmit = (message: PromptInputMessage) => {};
+  const { saved, reset } = useSavedChat<AdminMessage>(STORAGE_KEY);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Conversation className="flex-1">
-        <ConversationContent>{null}</ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
-
-      <div className="flex flex-col gap-3 border-t p-3">
-        <Suggestions>
-          {SUGGESTIONS.map((s) => (
-            <Suggestion key={s} suggestion={s} />
-          ))}
-        </Suggestions>
-        <PromptInput onSubmit={handleSubmit}>
-          <PromptInputBody>
-            <PromptInputTextarea
-              value={input}
-              onChange={(e) => setInput(e.currentTarget.value)}
-              placeholder="Ask the admin agent…"
-            />
-          </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools />
-            <PromptInputSubmit status="ready" disabled={!input.trim()} />
-          </PromptInputFooter>
-        </PromptInput>
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <h2 className="text-sm font-medium text-muted-foreground">Operations chat</h2>
+        <Button variant="ghost" size="sm" onClick={reset}>
+          <SquarePen className="size-4" aria-hidden="true" />
+          New chat
+        </Button>
       </div>
+      {saved && <AdminChat key={saved.version} saved={saved} />}
     </div>
+  );
+}
+
+function AdminChat({ saved }: { saved: SavedChat<AdminMessage> }) {
+  const { messages, status, error, sendMessage, regenerate, stop } =
+    useWorkflowChat<AdminMessage>({ api: "/api/admin/chat", storageKey: STORAGE_KEY, saved });
+  const send = (text: string) => sendMessage({ text });
+
+  return (
+    <>
+      <ChatThread
+        messages={messages}
+        status={status}
+        error={error}
+        onRetry={() => regenerate()}
+        renderTool={(part) => <AdminToolPart part={part as Parameters<typeof AdminToolPart>[0]["part"]} />}
+        empty={
+          <div className="space-y-2">
+            <Bot className="mx-auto size-8 text-muted-foreground" aria-hidden="true" />
+            <p className="text-sm font-medium">Investigate store operations</p>
+            <p className="text-sm text-muted-foreground">
+              Ask about support, returns, inventory or sales. Results are computed in a sandbox,
+              and preferences you share are remembered for next time.
+            </p>
+          </div>
+        }
+      />
+      <ChatComposer status={status} onSend={send} onStop={stop} placeholder="Ask the admin agent…">
+        {messages.length === 0 && (
+          <Suggestions>
+            {SUGGESTIONS.map((s) => (
+              <Suggestion key={s} suggestion={s} onClick={send} />
+            ))}
+          </Suggestions>
+        )}
+      </ChatComposer>
+    </>
   );
 }

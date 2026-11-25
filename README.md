@@ -5,7 +5,13 @@ A Next.js e-commerce app used as the hands-on project for the Vercel Agent Found
 The repo has two layers:
 
 1. **A working storefront** — products, search, product pages, cart, promotions, and categories, backed by the live Vercel Swag Store API. There is no local product or cart database; reads happen in Server Components and mutations go through Server Actions, so the deployment-protection secret never reaches the client.
-2. **A workshop scaffold** — the agent and workflow pieces (`lib/agent.ts`, `lib/tools.ts`, `lib/workflows/*`, the `/api/chat*` and `/api/admin/chat` routes) are intentionally left as stubs that return `501`. You implement them as you work through the certification chapters.
+2. **Two durable AI agents** — a customer **shopping agent** (robot icon in the header) and an employee **store admin agent** at `/admin`. Both use AI SDK `WorkflowAgent`s on Vercel Workflow, route models through AI Gateway, and render tool results with AI Elements.
+
+## Agents
+
+- **Shopping agent** — `searchProducts`, `getAllCategories`, `getProductDetails`, `returnOrder`. Results render as product cards / detail views in the chat. `returnOrder` validates the order, then starts `returnOrderWorkflow` (notify → pre-authorize refund → file return, each a retried step) and confirms immediately; a hook token makes it one return per order.
+- **Admin agent** — read-only back-office tools (`getSupportTickets`, `getReturnsHistory`, `getInventoryStock`, `getSalesAnalytics`) plus catalog search. Each back-office result is saved as JSON into a persistent, network-isolated Vercel Sandbox, where the `bash` tool computes joins and aggregates. `saveMemory` appends to `memory.md` in the same sandbox; the workflow reads that file at the start of every run and puts it in the instructions.
+- **Durability** — one workflow run per turn; model calls and tools are retried steps. The client (`hooks/use-workflow-chat.ts`) uses `WorkflowChatTransport`, keeps history in `localStorage`, and reconnects to an in-flight run after a refresh without duplicating output. If a run fails after retries, the client gets an explicit error instead of an empty reply.
 
 ## Tech stack
 
@@ -27,7 +33,7 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The storefront only needs `BYPASS_SECRET` to run. The `STORE_BUSINESS_AGENT_*` variables are only required once you reach the admin-agent chapter.
+The storefront only needs `BYPASS_SECRET`. The agents also need AI Gateway + Sandbox auth (`vercel link && vercel env pull .env.local` writes `VERCEL_OIDC_TOKEN`), and `/admin` needs `ADMIN_PASSWORD`.
 
 ## Environment variables
 
@@ -35,9 +41,9 @@ The storefront only needs `BYPASS_SECRET` to run. The `STORE_BUSINESS_AGENT_*` v
 | --- | --- | --- |
 | `BYPASS_SECRET` | Yes | Vercel deployment-protection bypass secret. Sent as the `x-vercel-protection-bypass` header on every API call. Server-only — never give it a `NEXT_PUBLIC_` prefix. |
 | `API_BASE_URL` | No | Override the backend API base URL. Defaults to `https://vercel-agentic-swag-store-api.vercel.app/api`. |
-| `STORE_BUSINESS_AGENT_URL` | Admin chat only | HTTP base URL of the deployed store-business-agent. |
-| `STORE_BUSINESS_AGENT_BASIC_USER` | Admin chat only | HTTP Basic auth user matching the agent's `ADMIN_AGENT_BASIC_USER`. |
-| `STORE_BUSINESS_AGENT_BASIC_PASSWORD` | Admin chat only | HTTP Basic auth password matching the agent's `ADMIN_AGENT_BASIC_PASSWORD`. |
+| `ADMIN_PASSWORD` | Admin only | Password for `/admin`. Server-only; the gate fails closed when unset. The cookie stores a SHA-256 digest, never the password. |
+| `VERCEL_OIDC_TOKEN` | Agents (local) | Auth for AI Gateway and Vercel Sandbox. Written by `vercel env pull`; provided automatically on Vercel. `AI_GATEWAY_API_KEY` also works for the Gateway. |
+| `AI_MODEL` | No | Gateway model for both agents (must support tool use). Defaults to `anthropic/claude-sonnet-5.5`. |
 | `NEXT_PUBLIC_SITE_URL` | No | Public site URL used for metadata. Defaults to `http://localhost:3000`. |
 
 `.env.local` is gitignored; `.env.example` is the redacted template.
@@ -63,9 +69,9 @@ app/
     products/[param]/      # /products/:idOrSlug — SSG product detail
   admin/                   # /admin dashboard + /admin/login (demo auth)
   api/
-    chat/route.ts          # customer chat — workshop stub (501)
-    chat/[id]/stream/      # durable-agent stream resume — workshop stub (501)
-    admin/chat/route.ts    # admin agent chat — workshop stub (501)
+    chat/route.ts          # shopping chat: starts one durable workflow run per turn
+    chat/[id]/stream/      # reconnect to a shopping run (refresh / dropped connection)
+    admin/chat/            # admin chat + its own reconnect route (cookie-gated in proxy.ts)
   layout.tsx               # synchronous root layout (keeps routes statically renderable)
 lib/
   api.ts                   # typed fetch wrapper for the Swag Store API (server-only)
@@ -75,8 +81,12 @@ lib/
   cart-actions.ts          # 'use server' cart mutations (revalidateTag('cart'))
   admin-auth.ts            # demo admin auth constants
   admin-actions.ts         # 'use server' admin login/logout
-  agent.ts, tools.ts       # workshop stubs — your agent + its tools
-  workflows/               # workshop stubs — chat / admin-chat / return flows
+  agent.ts                 # model + instructions for both agents
+  tools.ts                 # shopping tools (search, categories, details, returnOrder)
+  admin-tools.ts           # admin tools (back office, bash, saveMemory) — never used by the shop agent
+  sandbox.ts               # the admin agent's persistent Vercel Sandbox (memory.md + data/*.json)
+  chat-route.ts            # shared start/reconnect logic for both chat APIs
+  workflows/               # shop chat, admin chat, and return workflows (WorkflowAgent)
 components/
   cart-*.tsx               # cart provider, button, and sheet (client)
   agent-chat.tsx, admin-agent-chat.tsx, ai-elements/   # chat UI (workshop)
@@ -95,8 +105,8 @@ Render modes: `/` is **static** (`force-static`, `revalidate = 60`), `/products/
 
 ### Admin
 
-`/admin` is gated behind `/admin/login` with a simple demo cookie set by `lib/admin-actions.ts`. The dashboard hosts the admin agent chat UI, which posts to `/api/admin/chat`. That route — like the customer `/api/chat` routes — is a workshop stub until you complete the corresponding chapter.
+`/admin` is gated behind `/admin/login` with a simple demo cookie set by `lib/admin-actions.ts`. The dashboard hosts the admin agent chat, which posts to `/api/admin/chat`. `proxy.ts` gates `/admin/*` (redirect) and `/api/admin/*` (401).
 
 ## Deployment
 
-Deploys to [Vercel](https://vercel.com). In the project's environment variables set `BYPASS_SECRET` (and the `STORE_BUSINESS_AGENT_*` values if you've built the admin-agent chapter). `images.remotePatterns` in `next.config.mjs` is whitelisted for the Vercel Blob hosts the API serves product images from — add hostnames there if the API starts returning images from a new domain.
+Deploys to [Vercel](https://vercel.com). In the project's environment variables set `BYPASS_SECRET` and `ADMIN_PASSWORD` (AI Gateway and Sandbox authenticate via OIDC automatically). `images.remotePatterns` in `next.config.mjs` is whitelisted for the Vercel Blob hosts the API serves product images from — add hostnames there if the API starts returning images from a new domain.

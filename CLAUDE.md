@@ -73,9 +73,28 @@ Client components are kept minimal — only where state, effects, or browser API
 
 Everything else (`Header`, `Footer`, `ProductCard`, `ProductGrid`, `PromoBanner`, `CategoryShowcase`, `RelatedProducts`, every page) is a Server Component.
 
+### Agents (see README "Agents")
+
+- Shopping (`lib/tools.ts`, `lib/workflows/chat-flow.ts`) and admin (`lib/admin-tools.ts`, `lib/workflows/admin-chat-flow.ts`) are separate `WorkflowAgent`s. Never import admin tools or `lib/sandbox.ts` into the shopping side.
+- Tool `execute` functions are `"use step"`. Throw `FatalError` for 4xx (no retry), plain errors for transient failures (retried) — see `toStepError`.
+- `streamAgent` uses `sendFinish: false, preventClose: true` and closes the stream itself so a failed run sends an explicit error. Without the explicit close, the HTTP response hangs.
+- The reconnect routes check `run.workflowName` so one agent's endpoint can't replay the other's run.
+- `ADMIN_PASSWORD` (env) gates `/admin` + `/api/admin/*` in `proxy.ts`. `AI_MODEL` overrides the Gateway model (free-tier Gateway accounts can only use free models, rate-limited to 5 req/min).
+- Inspect runs with `npx workflow inspect runs` / `npx workflow web`.
+
 ### Configuration quirks
 
 - `next.config.mjs` keeps `typescript.ignoreBuildErrors: true` and `images.unoptimized: true`. `images.remotePatterns` is whitelisted for `**.public.blob.vercel-storage.com` and `**.vercel-storage.com` (where API product images live); add hostnames here if the API ever returns images from a new domain.
 - `@vercel/analytics` only mounts when `NODE_ENV === 'production'` (see `app/layout.tsx`).
 - The repo is linked to v0 (`https://v0.app/chat/projects/prj_X7UGePkFlLC33RuxWiTZySFDcSzO`); merges to `main` auto-deploy via Vercel. v0 may push commits directly. When deploying, set `VERCEL_PROTECTION_BYPASS_SECRET` in the Vercel project's environment variables.
 - The root layout is intentionally synchronous so it doesn't opt routes out of static. `pnpm build` should report `/` as `○` (Static), `/products/[param]` as `●` (SSG), and `/search` as `ƒ` (Dynamic). If you ever convert the layout to `async function` and `await` something that uses `cookies()`/`headers()`/`searchParams`, you will silently switch every route back to dynamic — verify the build output after layout changes.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

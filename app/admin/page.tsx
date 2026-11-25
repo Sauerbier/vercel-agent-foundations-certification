@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function AdminPage() {
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <header className="sticky top-0 z-50 w-full border-b border-border bg-background">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link
@@ -29,7 +29,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 py-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-2 py-2 sm:px-4 sm:py-4">
         <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-card">
           <AdminAgentChat />
         </div>

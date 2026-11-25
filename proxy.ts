@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { ADMIN_COOKIE_NAME, ADMIN_PASSWORD } from "@/lib/admin-auth";
+import { ADMIN_COOKIE_NAME, adminSessionToken } from "@/lib/admin-auth";
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/admin/login")) {
     return NextResponse.next();
   }
 
+  const token = await adminSessionToken();
   const cookie = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
-  if (cookie === ADMIN_PASSWORD) {
+  if (token && cookie === token) {
     return NextResponse.next();
+  }
+
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const url = request.nextUrl.clone();
@@ -21,5 +26,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/api/admin/:path*"],
 };
